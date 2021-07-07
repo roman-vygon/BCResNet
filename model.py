@@ -43,7 +43,6 @@ class BroadcastedBlock(nn.Module):
     ) -> None:
         super(BroadcastedBlock, self).__init__()
 
-        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
                                       dilation=dilation,
                                       stride=stride)
