@@ -1,7 +1,6 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
-from typing import Callable, Optional
 
 
 class SubSpectralNorm(nn.Module):
@@ -41,11 +40,8 @@ class BroadcastedBlock(nn.Module):
             dilation=1,
             stride=1,
             temp_pad=(0, 1),
-            norm_layer: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super(BroadcastedBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
 
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
@@ -54,7 +50,7 @@ class BroadcastedBlock(nn.Module):
         self.ssn1 = SubSpectralNorm(planes, 5)
         self.temp_dw_conv = nn.Conv2d(planes, planes, kernel_size=(1, 3), padding=temp_pad, groups=planes,
                                       dilation=dilation, stride=stride)
-        self.bn = norm_layer(planes)
+        self.bn = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.channel_drop = nn.Dropout2d(p=0.5)
         self.swish = nn.SiLU()
@@ -62,16 +58,25 @@ class BroadcastedBlock(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         identity = x
+
+        # f2
+        ##########################
         out = self.freq_dw_conv(x)
         out = self.ssn1(out)
+        ##########################
+
         auxilary = out
         out = out.mean(2, keepdim=True)  # frequency average pooling
+
+        # f1
+        ############################
         out = self.temp_dw_conv(out)
         out = self.bn(out)
         out = self.swish(out)
-
         out = self.conv1x1(out)
         out = self.channel_drop(out)
+        ############################
+
         out = out + identity + auxilary
         out = self.relu(out)
 
@@ -87,20 +92,17 @@ class TransitionBlock(nn.Module):
             dilation=1,
             stride=1,
             temp_pad=(0, 1),
-            norm_layer: Optional[Callable[..., nn.Module]] = None
     ) -> None:
         super(TransitionBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
 
         self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
                                       stride=stride,
                                       dilation=dilation)
-        self.ssn1 = SubSpectralNorm(planes, 5)
+        self.ssn = SubSpectralNorm(planes, 5)
         self.temp_dw_conv = nn.Conv2d(planes, planes, kernel_size=(1, 3), padding=temp_pad, groups=planes,
                                       dilation=dilation, stride=stride)
-        self.bn1 = norm_layer(planes)
-        self.bn2 = norm_layer(planes)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.channel_drop = nn.Dropout2d(p=0.5)
         self.swish = nn.SiLU()
@@ -108,19 +110,26 @@ class TransitionBlock(nn.Module):
         self.conv1x1_2 = nn.Conv2d(planes, planes, kernel_size=(1, 1), bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
+        # f2
+        #############################
         out = self.conv1x1_1(x)
         out = self.bn1(out)
         out = self.relu(out)
         out = self.freq_dw_conv(out)
-        out = self.ssn1(out)
+        out = self.ssn(out)
+        #############################
         auxilary = out
         out = out.mean(2, keepdim=True)  # frequency average pooling
+
+        # f1
+        #############################
         out = self.temp_dw_conv(out)
         out = self.bn2(out)
         out = self.swish(out)
-
         out = self.conv1x1_2(out)
         out = self.channel_drop(out)
+        #############################
+
         out = auxilary + out
         out = self.relu(out)
 
@@ -152,31 +161,40 @@ class BCResNet(torch.nn.Module):
         self.conv4 = nn.Conv2d(32, 12, 1, bias=False)
 
     def forward(self, x):
+
         print('INPUT SHAPE:', x.shape)
         out = self.conv1(x)
+
         print('BLOCK1 INPUT SHAPE:', out.shape)
         out = self.block1_1(out)
         out = self.block1_2(out)
+
         print('BLOCK2 INPUT SHAPE:', out.shape)
         out = self.block2_1(out)
         out = self.block2_2(out)
+
         print('BLOCK3 INPUT SHAPE:', out.shape)
         out = self.block3_1(out)
         out = self.block3_2(out)
         out = self.block3_3(out)
         out = self.block3_4(out)
+
         print('BLOCK4 INPUT SHAPE:', out.shape)
         out = self.block4_1(out)
         out = self.block4_2(out)
         out = self.block4_3(out)
         out = self.block4_4(out)
+
         print('Conv2 INPUT SHAPE:', out.shape)
         out = self.conv2(out)
+
         print('Conv3 INPUT SHAPE:', out.shape)
         out = self.conv3(out)
         out = out.mean(-1, keepdim=True)
+
         print('Conv4 INPUT SHAPE:', out.shape)
         out = self.conv4(out)
+
         print('OUTPUT SHAPE:', out.shape)
         return out
 
