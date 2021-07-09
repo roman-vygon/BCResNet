@@ -12,8 +12,6 @@ class SubSpectralNorm(nn.Module):
 
     def forward(self, x):
         # x: input features with shape {N, C, F, T}
-        # gamma: scale parameter with shape {1, C*S, 1, 1}
-        # beta: shift parameter with shape {1, C*S, 1, 1}
         # S: number of sub-bands
         N, C, F, T = x.size()
         x = x.view(N, C * self.S, F // self.S, T)
