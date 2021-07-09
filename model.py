@@ -8,11 +8,7 @@ class SubSpectralNorm(nn.Module):
         super(SubSpectralNorm, self).__init__()
         self.S = S
         self.eps = eps
-        self.gamma = torch.nn.Parameter(torch.ones(1, C * S, 1, 1))
-        self.gamma.requires_grad = True
-
-        self.beta = torch.nn.Parameter(torch.zeros(1, C * S, 1, 1))
-        self.beta.requires_grad = True
+        self.bn = nn.BatchNorm2d(C*S)
 
     def forward(self, x):
         # x: input features with shape {N, C, F, T}
@@ -20,15 +16,9 @@ class SubSpectralNorm(nn.Module):
         # beta: shift parameter with shape {1, C*S, 1, 1}
         # S: number of sub-bands
         N, C, F, T = x.size()
-        gamma = torch.ones(1, C * self.S, 1, 1)
-        beta = torch.zeros(1, C * self.S, 1, 1)
         x = x.view(N, C * self.S, F // self.S, T)
 
-        # BatchNorm2D(C*S) can replace this line to End.
-        mean = x.mean([0, 2, 3]).view([1, C * self.S, 1, 1])
-        var = x.var([0, 2, 3]).view([1, C * self.S, 1, 1])
-        x = gamma * (x - mean) / (var + self.eps).sqrt() + beta
-        # End
+        x = self.bn(x)
 
         return x.view(N, C, F, T)
 
@@ -45,10 +35,10 @@ class BroadcastedBlock(nn.Module):
 
         self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
                                       dilation=dilation,
-                                      stride=stride)
+                                      stride=stride, bias=False)
         self.ssn1 = SubSpectralNorm(planes, 5)
         self.temp_dw_conv = nn.Conv2d(planes, planes, kernel_size=(1, 3), padding=temp_pad, groups=planes,
-                                      dilation=dilation, stride=stride)
+                                      dilation=dilation, stride=stride, bias=False)
         self.bn = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.channel_drop = nn.Dropout2d(p=0.5)
@@ -96,10 +86,10 @@ class TransitionBlock(nn.Module):
 
         self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
                                       stride=stride,
-                                      dilation=dilation)
+                                      dilation=dilation, bias=False)
         self.ssn = SubSpectralNorm(planes, 5)
         self.temp_dw_conv = nn.Conv2d(planes, planes, kernel_size=(1, 3), padding=temp_pad, groups=planes,
-                                      dilation=dilation, stride=stride)
+                                      dilation=dilation, stride=stride, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
@@ -201,3 +191,4 @@ class BCResNet(torch.nn.Module):
 x = torch.ones(5, 1, 40, 128)
 bcresnet = BCResNet()
 _ = bcresnet(x)
+print('num parameters:', sum(p.numel() for p in bcresnet.parameters() if p.requires_grad))
